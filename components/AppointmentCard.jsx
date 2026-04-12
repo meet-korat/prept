@@ -18,6 +18,7 @@ import FeedbackModal from "./FeedbackModal";
 
 const AppointmentCard = ({ booking, mode, isPast = false }) => {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+
   const {
     startTime,
     endTime,

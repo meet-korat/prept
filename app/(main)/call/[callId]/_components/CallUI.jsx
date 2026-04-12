@@ -1,101 +1,165 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  StreamCall,
-  StreamVideo,
-  StreamVideoClient,
+  CallControls,
+  CallingState,
+  SpeakerLayout,
+  StreamTheme,
+  useCall,
+  useCallStateHooks,
 } from "@stream-io/video-react-sdk";
-import "@stream-io/video-react-sdk/dist/css/styles.css";
-import "stream-chat-react/dist/css/v2/index.css";
-import CallUI from "./CallUI";
+import { Loader2, MessageSquare, Sparkles } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import {
+  Channel,
+  Chat,
+  MessageInput,
+  MessageList,
+  useCreateChatClient,
+  Window,
+} from "stream-chat-react";
+import AIQuestionsPanel from "./AIQuestionsPanel";
 
-const CallRoom = ({
+const CallUI = ({
   callId,
-  token,
-  apiKey,
-  currentUser,
-  booking,
   isInterviewer,
+  booking,
+  onLeave,
+  apiKey,
+  token,
+  currentUser,
 }) => {
-  const router = useRouter();
+  const { useCallCallingState } = useCallStateHooks();
+  const call = useCall();
+  const callingState = useCallCallingState();
 
-  const [videoClient, setVideoClient] = useState(null);
-  const [call, setCall] = useState(null);
+  const chatClient = useCreateChatClient({
+    apiKey,
+    tokenOrProvider: token,
+    userData: {
+      id: currentUser.id,
+      name: currentUser.name,
+      image: currentUser.imageUrl,
+    },
+  });
 
-  const clientRef = useRef(null);
-  const joinedRef = useRef(false);
+  const handleLeave = useCallback(async () => {
+    try {
+      if (call) {
+        const isRecording = call.state?.recording;
+        if (isRecording) {
+          await call.stopRecording().catch(() => {});
+        }
+        await call.leave().catch(() => {});
+      }
+    } finally {
+      onLeave();
+    }
+  }, [call, onLeave]);
+
+  const [chatChannel, setChatChannel] = useState(null);
 
   useEffect(() => {
-    if (joinedRef.current) return;
-    joinedRef.current = true;
+    if (!chatClient) return;
 
-    const client = new StreamVideoClient({
-      apiKey,
-      user: {
-        id: currentUser.id,
-        name: currentUser.name,
-        image: currentUser.imageUrl,
-      },
-      token,
+    const channel = chatClient.channel("messaging", callId, {
+      name: "Interview Chat",
+      members: [
+        booking.interviewer.clerkUserId,
+        booking.interviewee.clerkUserId,
+      ],
     });
 
-    const callInstance = client.call("default", callId);
-
-    callInstance
-      .join({ create: false })
-      .then(() => {
-        clientRef.current = client;
-        setVideoClient(client);
-        setCall(callInstance);
-      })
+    channel
+      .watch()
+      .then(() => setChatChannel(channel))
       .catch(console.error);
 
     return () => {
-      callInstance.leave().catch(() => {});
-      client.disconnectUser().catch(() => {});
-      clientRef.current = null;
-      joinedRef.current = false;
+      channel.stopWatching().catch(() => {});
     };
-  }, [
-    apiKey,
-    callId,
-    currentUser.id,
-    currentUser.imageUrl,
-    currentUser.name,
-    token,
-  ]);
+  }, [chatClient, callId, booking]);
 
-  const handleLeave = useCallback(() => {
-    router.push(isInterviewer ? "/dashboard" : "/appointments");
-  }, [isInterviewer, router]);
-
-  if (!videoClient || !call) {
+  if (callingState === CallingState.LEFT) {
     return (
       <div className="min-h-screen bg-[#0a0a0b] flex flex-col items-center justify-center gap-3">
-        <Loader2 size={28} className="text-amber-400 animate-spin" />
-        <p className="text-stone-500 text-sm font-light">Connecting to call…</p>
+        <p className="text-stone-400 text-sm">Leaving call…</p>
       </div>
     );
   }
 
   return (
-    <StreamVideo client={videoClient}>
-      <StreamCall call={call}>
-        <CallUI
-          callId={callId}
-          isInterviewer={isInterviewer}
-          booking={booking}
-          onLeave={handleLeave}
-          apiKey={apiKey}
-          token={token}
-          currentUser={currentUser}
-        />
-      </StreamCall>
-    </StreamVideo>
+    <div className="min-h-[92vh] bg-[#0a0a0b] flex flex-col overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-white/8 shrink-0">
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className="border-white/10 text-stone-500 text-xs"
+          >
+            {booking.interviewer.name}
+            <span className="text-stone-700 mx-1.5">×</span>
+            {booking.interviewee.name}
+          </Badge>
+
+          {isInterviewer && (
+            <Badge
+              variant="outline"
+              className="border-amber-400/20 bg-amber-400/5 text-amber-400 text-xs"
+            >
+              Interviewer
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 min-h-0">
+        <div className="flex flex-col flex-1 min-w-0">
+          <StreamTheme>
+            <SpeakerLayout participantBarPosition="bottom" />
+            <CallControls onLeave={handleLeave} />
+          </StreamTheme>
+        </div>
+
+        <div className="w-85 shrink-0 flex flex-col border-l border-white/8 bg-[#0a0a0b]">
+          <Tabs defaultValue="chat" className="h-full">
+            <TabsList variant="line" className="w-full">
+              <TabsTrigger value="chat" className={"w-1/2 h-6 py-2"}>
+                <MessageSquare size={13} />
+                Chat
+              </TabsTrigger>
+              {true && (
+                <TabsTrigger value="questions" className={"w-1/2 h-6 py-2"}>
+                  <Sparkles size={13} />
+                  AI Questions
+                </TabsTrigger>
+              )}
+            </TabsList>
+            <TabsContent value="chat">
+              {chatClient && chatChannel ? (
+                <Chat client={chatClient} theme="str-chat__theme-dark">
+                  <Channel channel={chatChannel}>
+                    <Window>
+                      <MessageList />
+                      <MessageInput focus />
+                    </Window>
+                  </Channel>
+                </Chat>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <Loader2 size={18} className="text-stone-600 animate-spin" />
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="questions">
+              <AIQuestionsPanel categories={booking.categories} />
+            </TabsContent>
+          </Tabs>
+        </div>
+      </div>
+    </div>
   );
 };
 
-export default CallRoom;
+export default CallUI;

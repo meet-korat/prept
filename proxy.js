@@ -28,7 +28,8 @@ export default clerkMiddleware(async (auth, req) => {
   if (!isWebhookRoute(req)) {
     const decision = await aj.protect(req);
     if (decision.isDenied()) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      console.log("Arcjet blocked:", decision.reason);
+      return NextResponse.next();
     }
   }
 
